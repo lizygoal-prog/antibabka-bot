@@ -11,7 +11,6 @@ import logging
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from aiohttp import web
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -25,9 +24,7 @@ from telegram.ext import (
 logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(message)s",
     level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(),
-    ],
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger(__name__)
 
@@ -42,10 +39,10 @@ PHOTO_FILE  = "tariffs.jpg"
 WEBHOOK_HOST = "0.0.0.0"
 WEBHOOK_PORT = int(os.environ.get("PORT", 8080))
 
-TARIFF_DELAY_MINUTES = 30
+TARIFF_DELAY_MINUTES = 1  # через 1 минуту после /start приходит фото с тарифами
 
 # ════════════════════════════════════════════════════════
-#  CLUB CHAT ID — читается из переменной окружения Railway
+#  CLUB CHAT ID
 # ════════════════════════════════════════════════════════
 def get_club_chat_id() -> int:
     env_id = os.environ.get("CLUB_CHAT_ID", "0")
@@ -59,17 +56,17 @@ def get_club_chat_id() -> int:
 PLANS = {
     "1month": {
         "url":   "https://payform.ru/cnaS4vN/",
-        "label": "1 месяц — 1 490 ₽",
+        "label": "1 месяц - 1 490 ₽",
         "days":  30,
     },
     "3months": {
         "url":   "https://payform.ru/osaS4Cg/",
-        "label": "3 месяца — 3 999 ₽",
+        "label": "3 месяца - 3 999 ₽",
         "days":  90,
     },
     "6months": {
         "url":   "https://payform.ru/4kaS4HC/",
-        "label": "6 месяцев — 7 490 ₽",
+        "label": "6 месяцев - 7 490 ₽",
         "days":  180,
     },
 }
@@ -78,56 +75,56 @@ PLANS = {
 #  ТЕКСТЫ
 # ════════════════════════════════════════════════════════
 MSG_WELCOME = """\
-✨ <b>Привет! Я Лиза</b> — основатель закрытого клуба <b>Antibabka</b>.
+Привет! Я Лиза - основатель закрытого клуба Antibabka.
 
-Это место, где ты забудешь про усталость, отёки и диеты и научишься чувствовать себя лёгкой, энергичной и уверенной каждый день.
+Это место, где ты забудешь про усталость, отёки, диеты и прочие неприятности! Ты научишься чувствовать себя лёгкой, энергичной и уверенной каждый день.
 
-🔥 <b>Что тебя ждёт в клубе:</b>
+🔥 Что тебя ждёт в клубе:
 • Мини-тренировки от 5 минут в день
-• Зарядки утро/вечер 10–15 минут
+• Зарядки утро/вечер 10-15 минут
 • Комплексы на разные части тела до 40 минут
-• Точечные тренировки экстренной помощи
+• Точечные тренировки экстренной помощи (если что-то заболело)
 • 30+ лекций (диастаз, холка, целлюлит и др.)
 
-💛 <b>Что ты получишь:</b>
-• −2–4 кг в месяц без жёстких диет
+💛 Что ты получишь:
+• -2-4 кг в месяц без диет (тк тело будет выравниваться)
 • Лёгкость в теле: без отёков, боли и усталости
-• Красивая осанка и уверенность в себе
-• Долгосрочный результат без стресса
+• Красивая осанка = уверенность в себе
+• Долгосрочный результат без стресса (через месяц снова набрала - такого не будет)
 
-👩🏼‍⚕️ <b>Немного обо мне:</b>
-В профессии с 2015 года. Фитнес-тренер, кинезиолог, прохожу обучение по физиотерапии в США. Мои тренировки построены на медицине и анатомии — результат сравним с работой остеопата.
+👩🏼‍⚕️ Немного обо мне:
+В профессии с 2015 года. Первое образование фитнес-тренер, дальше я дипломировалась на кинезиолога, сейчас заканчиваю обучение по физиотерапии в США. Мои тренировки построены на медицине и анатомии - результат сравним с работой остеопата.
 
 Рада, что ты здесь 💛
-<i>Скоро пришлю тебе варианты тарифов — жди!</i>"""
+Ниже варианты тарифов, жду тебя в клубе"""
 
 MSG_TARIFFS = """\
-🌿 <b>Выбери свой тариф!</b>
+🌿 Выбери свой тариф!
 
-На фото — 3 плана: на 1, 3 и 6 месяцев. Они отличаются не только сроком, но и набором возможностей — посмотри внимательно.
+На фото - 3 плана: на 1, 3 и 6 месяцев. Они отличаются не только сроком, но и набором возможностей - посмотри внимательно.
 
 После оплаты тебе придёт ссылка, чтобы вступить в клуб 🎉
 
 Выбирай то, что тебе подходит, и нажимай кнопку 👇"""
 
 MSG_PAY_REDIRECT = """\
-✅ Отлично! Ты выбрала тариф <b>{label}</b>.
+Ты выбрала тариф {label}.
 
 Нажми кнопку ниже для перехода к оплате 👇"""
 
 MSG_THANKS = """\
-🎉 <b>Спасибо за оплату! Добро пожаловать в клуб Antibabka!</b>
+Спасибо за оплату! Добро пожаловать в клуб Antibabka! 🎉
 
-Вот твоя персональная ссылка — она работает <b>только 1 раз и только для тебя:</b>
+Вот твоя персональная ссылка - она работает только 1 раз и только для тебя:
 
-🔗 {invite_link}
+{invite_link}
 
-Нажми на ссылку и вступай — жду тебя внутри! 💛"""
+Нажми на ссылку и вступай - жду тебя внутри! 💛"""
 
 MSG_EXPIRED = """\
-⏰ <b>Привет!</b> Твоя подписка на клуб <b>Antibabka</b> закончилась.
+Привет! Твоя подписка на клуб Antibabka закончилась.
 
-Надеюсь, ты уже почувствовала результат! Чтобы продолжить путь — выбери тариф и продли доступ 👇"""
+Надеюсь, ты уже почувствовала результат! Чтобы продолжить - выбери тариф и продли доступ 👇"""
 
 # ════════════════════════════════════════════════════════
 #  БАЗА ДАННЫХ
@@ -223,8 +220,8 @@ def tariff_keyboard():
 def pay_keyboard(plan, user_id):
     url = f"{PLANS[plan]['url']}?us_telegram_id={user_id}&us_plan={plan}"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 Перейти к оплате", url=url)],
-        [InlineKeyboardButton("◀️ Выбрать другой тариф", callback_data="back_to_tariffs")],
+        [InlineKeyboardButton("Перейти к оплате", url=url)],
+        [InlineKeyboardButton("Выбрать другой тариф", callback_data="back_to_tariffs")],
     ])
 
 # ════════════════════════════════════════════════════════
@@ -233,7 +230,7 @@ def pay_keyboard(plan, user_id):
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     upsert_user(user.id, user.username, user.first_name)
-    await update.message.reply_html(MSG_WELCOME)
+    await update.message.reply_text(MSG_WELCOME)
     send_at = datetime.utcnow() + timedelta(minutes=TARIFF_DELAY_MINUTES)
     schedule_tariff_message(user.id, send_at)
     log.info(f"[START] user_id={user.id} @{user.username}")
@@ -243,10 +240,7 @@ async def cmd_chatid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     chat = update.effective_chat
-    await update.message.reply_text(
-        f"Chat ID: <code>{chat.id}</code>\nТип: {chat.type}\nНазвание: {chat.title or '—'}",
-        parse_mode="HTML"
-    )
+    await update.message.reply_text(f"Chat ID: {chat.id}\nТип: {chat.type}\nНазвание: {chat.title or '—'}")
 
 
 async def cmd_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -265,7 +259,7 @@ async def cmd_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user_id = int(args[0])
         plan = args[1]
         if plan not in PLANS:
-            await update.message.reply_text(f"❌ Неверный план. Доступные: {', '.join(PLANS.keys())}")
+            await update.message.reply_text(f"Неверный план. Доступные: {', '.join(PLANS.keys())}")
             return
         days = PLANS[plan]["days"]
         club_id = get_club_chat_id()
@@ -279,19 +273,18 @@ async def cmd_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
             invite_link = invite.invite_link
         else:
-            invite_link = "⚠️ CLUB_CHAT_ID не настроен"
+            invite_link = "Свяжитесь с @LizaGoal"
         await ctx.bot.send_message(
             chat_id=user_id,
             text=MSG_THANKS.format(invite_link=invite_link),
-            parse_mode="HTML",
         )
         await update.message.reply_text(
-            f"✅ Готово! Пользователь {user_id} получил тариф {plan} до {end_date[:10]}\n"
+            f"Готово! Пользователь {user_id} получил тариф {plan} до {end_date[:10]}\n"
             f"Инвайт: {invite_link}"
         )
         log.info(f"[MANUAL] user_id={user_id} plan={plan}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {e}")
+        await update.message.reply_text(f"Ошибка: {e}")
         log.error(f"[MANUAL] Error: {e}")
 
 
@@ -304,7 +297,6 @@ async def cb_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_caption(
         caption=MSG_PAY_REDIRECT.format(label=label),
         reply_markup=pay_keyboard(plan, user_id),
-        parse_mode="HTML",
     )
 
 
@@ -314,7 +306,6 @@ async def cb_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_caption(
         caption=MSG_TARIFFS,
         reply_markup=tariff_keyboard(),
-        parse_mode="HTML",
     )
 
 # ════════════════════════════════════════════════════════
@@ -330,7 +321,6 @@ async def job_send_tariffs(ctx: ContextTypes.DEFAULT_TYPE):
                     photo=photo,
                     caption=MSG_TARIFFS,
                     reply_markup=tariff_keyboard(),
-                    parse_mode="HTML",
                 )
             mark_tariff_sent(user_id)
             log.info(f"[TARIFF] Sent to user_id={user_id}")
@@ -347,14 +337,12 @@ async def job_check_subscriptions(ctx: ContextTypes.DEFAULT_TYPE):
             if club_id != 0:
                 await ctx.bot.ban_chat_member(chat_id=club_id, user_id=user_id)
                 await ctx.bot.unban_chat_member(chat_id=club_id, user_id=user_id)
-                log.info(f"[EXPIRE] Kicked user_id={user_id}")
             with open(PHOTO_FILE, "rb") as photo:
                 await ctx.bot.send_photo(
                     chat_id=user_id,
                     photo=photo,
                     caption=MSG_EXPIRED,
                     reply_markup=tariff_keyboard(),
-                    parse_mode="HTML",
                 )
             deactivate_subscription(user_id)
         except Exception as e:
@@ -373,20 +361,17 @@ async def prodamus_webhook(request: web.Request) -> web.Response:
             data = await request.json()
         else:
             data = dict(await request.post())
-        log.info(f"[WEBHOOK] Prodamus: {json.dumps(data, ensure_ascii=False)}")
+        log.info(f"[WEBHOOK] {json.dumps(data, ensure_ascii=False)}")
         status = str(data.get("status", "")).lower()
         if status not in ("success", "paid", "1", "true"):
             return web.Response(text="OK")
         raw_uid = data.get("us_telegram_id") or data.get("telegram_id") or ""
         plan    = data.get("us_plan") or data.get("plan") or ""
         if not raw_uid or plan not in PLANS:
-            log.warning(f"[WEBHOOK] Missing fields: {data}")
             return web.Response(text="OK")
         user_id = int(raw_uid)
-        days    = PLANS[plan]["days"]
         club_id = get_club_chat_id()
-        end_date = add_subscription(user_id, plan, days)
-        log.info(f"[WEBHOOK] Sub added: user={user_id} plan={plan} until={end_date}")
+        end_date = add_subscription(user_id, plan, PLANS[plan]["days"])
         if club_id != 0 and _bot is not None:
             invite = await _bot.create_chat_invite_link(
                 chat_id=club_id,
@@ -396,14 +381,10 @@ async def prodamus_webhook(request: web.Request) -> web.Response:
             )
             invite_link = invite.invite_link
         else:
-            invite_link = "⚠️ Свяжитесь с @LizaGoal"
+            invite_link = "Свяжитесь с @LizaGoal"
         if _bot is not None:
-            await _bot.send_message(
-                chat_id=user_id,
-                text=MSG_THANKS.format(invite_link=invite_link),
-                parse_mode="HTML",
-            )
-        log.info(f"[WEBHOOK] Thanks sent to user_id={user_id}")
+            await _bot.send_message(chat_id=user_id, text=MSG_THANKS.format(invite_link=invite_link))
+        log.info(f"[WEBHOOK] Done: user={user_id} plan={plan} until={end_date}")
     except Exception as e:
         log.error(f"[WEBHOOK] Error: {e}", exc_info=True)
     return web.Response(text="OK")
@@ -435,7 +416,7 @@ async def main():
     await runner.setup()
     site = web.TCPSite(runner, WEBHOOK_HOST, WEBHOOK_PORT)
     await site.start()
-    log.info(f"Webhook listening on port {WEBHOOK_PORT}")
+    log.info(f"Webhook on port {WEBHOOK_PORT}")
 
     log.info("Bot starting...")
     async with application:
