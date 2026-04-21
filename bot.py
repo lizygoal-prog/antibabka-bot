@@ -31,19 +31,14 @@ log = logging.getLogger(__name__)
 # ════════════════════════════════════════════════════════
 #  КОНФИГУРАЦИЯ
 # ════════════════════════════════════════════════════════
-BOT_TOKEN   = os.environ.get("BOT_TOKEN", "8724804779:AAE0bSUwRsJGw2LUYgww4q0bw2ZcxqG3jfg")
-ADMIN_ID    = 1574658804
-DB_FILE     = "antibabka.db"
-PHOTO_FILE  = "tariffs.jpg"
-
+BOT_TOKEN    = os.environ.get("BOT_TOKEN", "8724804779:AAE0bSUwRsJGw2LUYgww4q0bw2ZcxqG3jfg")
+ADMIN_ID     = 1574658804
+DB_FILE      = "antibabka.db"
+PHOTO_FILE   = "tariffs.jpg"
 WEBHOOK_HOST = "0.0.0.0"
 WEBHOOK_PORT = int(os.environ.get("PORT", 8080))
+TARIFF_DELAY_MINUTES = 1
 
-TARIFF_DELAY_MINUTES = 1  # через 1 минуту после /start приходит фото с тарифами
-
-# ════════════════════════════════════════════════════════
-#  CLUB CHAT ID
-# ════════════════════════════════════════════════════════
 def get_club_chat_id() -> int:
     env_id = os.environ.get("CLUB_CHAT_ID", "0")
     if env_id and env_id != "0":
@@ -112,7 +107,8 @@ MSG_PAY_REDIRECT = """\
 
 Нажми кнопку ниже для перехода к оплате 👇"""
 
-MSG_THANKS = """\
+# Разные сообщения для каждого тарифа
+MSG_THANKS_1MONTH = """\
 Спасибо за оплату! Добро пожаловать в клуб Antibabka! 🎉
 
 Вот твоя персональная ссылка - она работает только 1 раз и только для тебя:
@@ -120,6 +116,30 @@ MSG_THANKS = """\
 {invite_link}
 
 Нажми на ссылку и вступай - жду тебя внутри! 💛"""
+
+MSG_THANKS_3MONTHS = """\
+Спасибо за оплату! Добро пожаловать в клуб Antibabka! 🎉
+
+Вот твоя персональная ссылка - она работает только 1 раз и только для тебя:
+
+{invite_link}
+
+Так как выбран тариф на 3 месяца, ты получаешь дополнительные бонусы, напиши мне в личку: @LizaGoal "Привет Лиза, я в клубе на 3 месяца, готова приступать к апгрейду!" 💛"""
+
+MSG_THANKS_6MONTHS = """\
+Спасибо за оплату! Добро пожаловать в клуб Antibabka! 🎉
+
+Вот твоя персональная ссылка - она работает только 1 раз и только для тебя:
+
+{invite_link}
+
+Так как выбран тариф на 6 месяцев, ты получаешь ВСЕ бонусы, напиши мне в личку: @LizaGoal "Привет Лиза, я в клубе на 6 месяцев, готова к личному ведению!" 💛"""
+
+THANKS_BY_PLAN = {
+    "1month":  MSG_THANKS_1MONTH,
+    "3months": MSG_THANKS_3MONTHS,
+    "6months": MSG_THANKS_6MONTHS,
+}
 
 MSG_EXPIRED = """\
 Привет! Твоя подписка на клуб Antibabka закончилась.
@@ -274,10 +294,8 @@ async def cmd_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             invite_link = invite.invite_link
         else:
             invite_link = "Свяжитесь с @LizaGoal"
-        await ctx.bot.send_message(
-            chat_id=user_id,
-            text=MSG_THANKS.format(invite_link=invite_link),
-        )
+        msg_text = THANKS_BY_PLAN[plan].format(invite_link=invite_link)
+        await ctx.bot.send_message(chat_id=user_id, text=msg_text)
         await update.message.reply_text(
             f"Готово! Пользователь {user_id} получил тариф {plan} до {end_date[:10]}\n"
             f"Инвайт: {invite_link}"
@@ -383,7 +401,8 @@ async def prodamus_webhook(request: web.Request) -> web.Response:
         else:
             invite_link = "Свяжитесь с @LizaGoal"
         if _bot is not None:
-            await _bot.send_message(chat_id=user_id, text=MSG_THANKS.format(invite_link=invite_link))
+            msg_text = THANKS_BY_PLAN[plan].format(invite_link=invite_link)
+            await _bot.send_message(chat_id=user_id, text=msg_text)
         log.info(f"[WEBHOOK] Done: user={user_id} plan={plan} until={end_date}")
     except Exception as e:
         log.error(f"[WEBHOOK] Error: {e}", exc_info=True)
