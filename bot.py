@@ -380,8 +380,8 @@ async def prodamus_webhook(request: web.Request) -> web.Response:
         else:
             data = dict(await request.post())
         log.info(f"[WEBHOOK] {json.dumps(data, ensure_ascii=False)}")
-        status = str(data.get("status", "")).lower()
-        if status not in ("success", "paid", "1", "true"):
+        status = str(data.get("status") or data.get("payment_status", "")).lower()
+        if status not in ("success", "paid", "1", "true", "успешная оплата"):
             return web.Response(text="OK")
         raw_uid = data.get("us_telegram_id") or data.get("telegram_id") or ""
         plan    = data.get("us_plan") or data.get("plan") or ""
