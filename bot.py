@@ -251,8 +251,16 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     upsert_user(user.id, user.username, user.first_name)
     await update.message.reply_text(MSG_WELCOME)
-    send_at = datetime.utcnow() + timedelta(minutes=TARIFF_DELAY_MINUTES)
-    schedule_tariff_message(user.id, send_at)
+    try:
+        with open(PHOTO_FILE, "rb") as photo:
+            await ctx.bot.send_photo(
+                chat_id=user.id,
+                photo=photo,
+                caption=MSG_TARIFFS,
+                reply_markup=tariff_keyboard(),
+            )
+    except Exception as e:
+        log.error(f"[START] Failed to send tariffs to user_id={user.id}: {e}")
     log.info(f"[START] user_id={user.id} @{user.username}")
 
 
