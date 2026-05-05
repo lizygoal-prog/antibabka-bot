@@ -50,19 +50,22 @@ def get_club_chat_id() -> int:
 # ════════════════════════════════════════════════════════
 PLANS = {
     "1month": {
-        "url":   "https://payform.ru/cnaS4vN/",
-        "label": "1 месяц - 1 490 ₽",
-        "days":  30,
+        "url":    "https://payform.ru/cnaS4vN/",
+        "label":  "1 месяц - 1 490 ₽",
+        "days":   30,
+        "amount": 1490.0,
     },
     "3months": {
-        "url":   "https://payform.ru/osaS4Cg/",
-        "label": "3 месяца - 3 999 ₽",
-        "days":  90,
+        "url":    "https://payform.ru/osaS4Cg/",
+        "label":  "3 месяца - 3 999 ₽",
+        "days":   90,
+        "amount": 3999.0,
     },
     "6months": {
-        "url":   "https://payform.ru/4kaS4HC/",
-        "label": "6 месяцев - 7 490 ₽",
-        "days":  180,
+        "url":    "https://payform.ru/4kaS4HC/",
+        "label":  "6 месяцев - 7 490 ₽",
+        "days":   180,
+        "amount": 7490.0,
     },
 }
 
@@ -170,6 +173,14 @@ def init_db():
                 send_at    TEXT    NOT NULL,
                 sent       INTEGER DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS pending_payments (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                plan       TEXT    NOT NULL,
+                amount     REAL    NOT NULL,
+                created_at TEXT    NOT NULL,
+                used       INTEGER DEFAULT 0
+            );
         """)
     log.info("Database initialized")
 
@@ -202,6 +213,34 @@ def get_expired_subscriptions():
 def deactivate_subscription(user_id):
     with sqlite3.connect(DB_FILE) as conn:
         conn.execute("UPDATE subscriptions SET active=0 WHERE user_id=? AND active=1", (user_id,))
+
+
+def add_pending_payment(user_id, plan, amount):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute(
+            "INSERT INTO pending_payments (user_id, plan, amount, created_at) VALUES (?,?,?,?)",
+            (user_id, plan, amount, datetime.utcnow().isoformat()),
+        )
+
+
+def match_pending_payment(amount):
+    """Найти последний неиспользованный ожидающий платёж по сумме (в течение 24 часов)"""
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    with sqlite3.connect(DB_FILE) as conn:
+        row = conn.execute(
+            """SELECT id, user_id, plan FROM pending_payments
+               WHERE amount=? AND used=0 AND created_at > ?
+               ORDER BY created_at DESC LIMIT 1""",
+            (amount, cutoff),
+        ).fetchone()
+    if row:
+        return row[0], row[1], row[2]
+    return None, None, None
+
+
+def mark_pending_used(pending_id):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE pending_payments SET used=1 WHERE id=?", (pending_id,))
 
 
 def schedule_tariff_message(user_id, send_at):
@@ -320,6 +359,7 @@ async def cb_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     plan = query.data.replace("plan_", "")
     user_id = query.from_user.id
     label = PLANS[plan]["label"]
+    add_pending_payment(user_id, plan, PLANS[plan]["amount"])
     await query.edit_message_caption(
         caption=MSG_PAY_REDIRECT.format(label=label),
         reply_markup=pay_keyboard(plan, user_id),
@@ -394,7 +434,19 @@ async def prodamus_webhook(request: web.Request) -> web.Response:
         raw_uid = data.get("us_telegram_id") or data.get("telegram_id") or ""
         plan    = data.get("us_plan") or data.get("plan") or ""
         if not raw_uid or plan not in PLANS:
-            return web.Response(text="OK")
+            # Продамус не передал Telegram ID — ищем по сумме платежа
+            try:
+                amount = float(data.get("sum", 0))
+                pending_id, raw_uid, plan = match_pending_payment(amount)
+                if raw_uid and plan in PLANS:
+                    log.info(f"[WEBHOOK] Matched by amount {amount}: user={raw_uid} plan={plan}")
+                    mark_pending_used(pending_id)
+                else:
+                    log.warning(f"[WEBHOOK] No match found for amount={amount}, no telegram_id in data")
+                    return web.Response(text="OK")
+            except Exception as e:
+                log.error(f"[WEBHOOK] Match error: {e}")
+                return web.Response(text="OK")
         user_id = int(raw_uid)
         club_id = get_club_chat_id()
         end_date = add_subscription(user_id, plan, PLANS[plan]["days"])
