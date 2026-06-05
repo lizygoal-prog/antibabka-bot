@@ -353,6 +353,30 @@ async def cmd_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         log.error(f"[MANUAL] Error: {e}")
 
 
+async def cmd_expire(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Отправить сообщение об истечении подписки: /expire USER_ID"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("Использование: /expire USER_ID\nПример: /expire 123456789")
+        return
+    try:
+        user_id = int(args[0])
+        with open(PHOTO_FILE, "rb") as photo:
+            await ctx.bot.send_photo(
+                chat_id=user_id,
+                photo=photo,
+                caption=MSG_EXPIRED,
+                reply_markup=tariff_keyboard(),
+            )
+        await update.message.reply_text(f"✅ Готово! Сообщение отправлено {user_id}")
+        log.info(f"[EXPIRE_MANUAL] user_id={user_id}")
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка: {e}")
+        log.error(f"[EXPIRE_MANUAL] Error: {e}")
+
+
 async def cb_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -482,6 +506,7 @@ async def main():
     application.add_handler(CommandHandler("start",   cmd_start))
     application.add_handler(CommandHandler("chatid",  cmd_chatid))
     application.add_handler(CommandHandler("confirm", cmd_confirm))
+    application.add_handler(CommandHandler("expire",  cmd_expire))
     application.add_handler(CallbackQueryHandler(cb_plan, pattern=r"^plan_"))
     application.add_handler(CallbackQueryHandler(cb_back, pattern=r"^back_to_tariffs$"))
 
