@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 # ════════════════════════════════════════════════════════
 BOT_TOKEN    = os.environ.get("BOT_TOKEN", "8724804779:AAE0bSUwRsJGw2LUYgww4q0bw2ZcxqG3jfg")
 ADMIN_ID     = 1574658804
-DB_FILE      = "antibabka.db"
+DB_FILE = "/data/antibabka.db"
 PHOTO_FILE   = "tariffs.jpg"
 WEBHOOK_HOST = "0.0.0.0"
 WEBHOOK_PORT = int(os.environ.get("PORT", 8080))
