@@ -377,6 +377,57 @@ async def cmd_expire(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         log.error(f"[EXPIRE_MANUAL] Error: {e}")
 
 
+async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Немедленно завершить подписку и выкинуть из клуба: /cancel USER_ID
+    Бот удалит человека и отправит напоминание об оплате в течение часа."""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("Использование: /cancel USER_ID\nПример: /cancel 123456789")
+        return
+    try:
+        user_id = int(args[0])
+        past = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.execute(
+                "UPDATE subscriptions SET end_date=? WHERE user_id=? AND active=1",
+                (past, user_id),
+            )
+        await update.message.reply_text(
+            f"✅ Подписка {user_id} помечена как истёкшая.\n"
+            f"Бот удалит из клуба и отправит напоминание в течение часа."
+        )
+        log.info(f"[CANCEL] user_id={user_id} subscription set to expired")
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка: {e}")
+        log.error(f"[CANCEL] Error: {e}")
+
+
+async def cmd_dbcheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Показать все подписки в базе: /dbcheck"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    with sqlite3.connect(DB_FILE) as conn:
+        subs = conn.execute(
+            "SELECT user_id, plan, end_date, active FROM subscriptions ORDER BY end_date DESC LIMIT 30"
+        ).fetchall()
+    if not subs:
+        await update.message.reply_text("📭 База пуста — нет ни одной подписки")
+        return
+    now = datetime.utcnow().isoformat()
+    lines = ["📋 Подписки в базе:\n"]
+    for user_id, plan, end_date, active in subs:
+        if not active:
+            icon = "⚫"
+        elif end_date <= now:
+            icon = "🔴 ИСТЕКЛА"
+        else:
+            icon = "🟢"
+        lines.append(f"{icon} {user_id} | {plan} | до {end_date[:10]}")
+    await update.message.reply_text("\n".join(lines))
+
+
 async def cb_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -423,10 +474,16 @@ async def job_check_subscriptions(ctx: ContextTypes.DEFAULT_TYPE):
     club_id = get_club_chat_id()
     for user_id, plan, end_date in expired:
         log.info(f"[EXPIRE] user_id={user_id} plan={plan} ended={end_date}")
-        try:
-            if club_id != 0:
+        # Шаг 1: Удалить из клуба (ошибка здесь НЕ останавливает остальное)
+        if club_id != 0:
+            try:
                 await ctx.bot.ban_chat_member(chat_id=club_id, user_id=user_id)
                 await ctx.bot.unban_chat_member(chat_id=club_id, user_id=user_id)
+                log.info(f"[EXPIRE] Removed from club: user_id={user_id}")
+            except Exception as e:
+                log.error(f"[EXPIRE] Failed to remove from club user_id={user_id}: {e}")
+        # Шаг 2: Отправить уведомление (всегда, даже если бан не сработал)
+        try:
             with open(PHOTO_FILE, "rb") as photo:
                 await ctx.bot.send_photo(
                     chat_id=user_id,
@@ -434,9 +491,12 @@ async def job_check_subscriptions(ctx: ContextTypes.DEFAULT_TYPE):
                     caption=MSG_EXPIRED,
                     reply_markup=tariff_keyboard(),
                 )
-            deactivate_subscription(user_id)
+            log.info(f"[EXPIRE] Notification sent: user_id={user_id}")
         except Exception as e:
-            log.error(f"[EXPIRE] Error for user_id={user_id}: {e}")
+            log.error(f"[EXPIRE] Failed to send notification user_id={user_id}: {e}")
+        # Шаг 3: Деактивировать подписку (всегда)
+        deactivate_subscription(user_id)
+        log.info(f"[EXPIRE] Subscription deactivated: user_id={user_id}")
 
 # ════════════════════════════════════════════════════════
 #  ВЕБХУК ПРОДАМУСА
@@ -507,6 +567,8 @@ async def main():
     application.add_handler(CommandHandler("chatid",  cmd_chatid))
     application.add_handler(CommandHandler("confirm", cmd_confirm))
     application.add_handler(CommandHandler("expire",  cmd_expire))
+    application.add_handler(CommandHandler("cancel",  cmd_cancel))
+    application.add_handler(CommandHandler("dbcheck", cmd_dbcheck))
     application.add_handler(CallbackQueryHandler(cb_plan, pattern=r"^plan_"))
     application.add_handler(CallbackQueryHandler(cb_back, pattern=r"^back_to_tariffs$"))
 
