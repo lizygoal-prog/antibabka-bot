@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-╔══════════════════════════════════════════╗
-║      ANTIBABKA CLUB — TELEGRAM BOT      ║
-╚══════════════════════════════════════════╝
-"""
+"""Telegram-бот библиотеки Antibabka: один пожизненный доступ."""
 
 import asyncio
 import json
@@ -14,12 +10,8 @@ from datetime import datetime, timedelta, timezone
 
 from aiohttp import web
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (
-    Application,
-    CallbackQueryHandler,
-    CommandHandler,
-    ContextTypes,
-)
+from telegram.error import BadRequest, Forbidden
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(message)s",
@@ -28,164 +20,124 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ════════════════════════════════════════════════════════
-#  КОНФИГУРАЦИЯ
-# ════════════════════════════════════════════════════════
-BOT_TOKEN    = os.environ.get("BOT_TOKEN", "8724804779:AAE0bSUwRsJGw2LUYgww4q0bw2ZcxqG3jfg")
-ADMIN_ID     = 1574658804
+# Railway Variables: BOT_TOKEN, CLUB_CHAT_ID, PORT
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+ADMIN_ID = 1574658804
 DB_FILE = "/data/antibabka.db"
-PHOTO_FILE   = "tariffs.jpg"
 WEBHOOK_HOST = "0.0.0.0"
-WEBHOOK_PORT = int(os.environ.get("PORT", 8080))
-TARIFF_DELAY_MINUTES = 1
+WEBHOOK_PORT = int(os.environ.get("PORT", "8080"))
 
-def get_club_chat_id() -> int:
-    env_id = os.environ.get("CLUB_CHAT_ID", "0")
-    if env_id and env_id != "0":
-        return int(env_id)
-    return 0
-
-# ════════════════════════════════════════════════════════
-#  ТАРИФНЫЕ ПЛАНЫ
-# ════════════════════════════════════════════════════════
+LIFETIME_PLAN = "lifetime"
 PLANS = {
-    "1month": {
-        "url":    "https://payform.ru/cnaS4vN/",
-        "label":  "1 месяц - 1 490 ₽",
-        "days":   30,
-        "amount": 1490.0,
-    },
-    "3months": {
-        "url":    "https://payform.ru/osaS4Cg/",
-        "label":  "3 месяца - 3 999 ₽",
-        "days":   90,
-        "amount": 3999.0,
-    },
-    "6months": {
-        "url":    "https://payform.ru/4kaS4HC/",
-        "label":  "6 месяцев - 7 490 ₽",
-        "days":   180,
-        "amount": 7490.0,
-    },
+    LIFETIME_PLAN: {
+        "url": "https://payform.ru/5fcbJnu/",
+        "label": "Доступ навсегда — 6 499 ₽",
+        "amount": 6499.0,
+    }
 }
 
-# ════════════════════════════════════════════════════════
-#  ТЕКСТЫ
-# ════════════════════════════════════════════════════════
-MSG_WELCOME = """\
-Привет! Я Лиза - основатель закрытого клуба Antibabka.
+MSG_WELCOME = """Привет! Я Лиза, кинезио-фитнес-тренер.
 
-Это место, где ты забудешь про усталость, отёки, диеты и прочие неприятности! Ты научишься чувствовать себя лёгкой, энергичной и уверенной каждый день.
+Ты попала в бот библиотеки тренировок Antibabka — пространства с пожизненным доступом, где ты научишься чувствовать себя лёгкой, энергичной и уверенной каждый день.
 
-🔥 Что тебя ждёт в клубе:
-• Мини-тренировки от 5 минут в день
-• Зарядки утро/вечер 10-15 минут
-• Комплексы на разные части тела до 40 минут
-• Точечные тренировки экстренной помощи (если что-то заболело)
-• 30+ лекций (диастаз, холка, целлюлит и др.)
+🔥 Что ждёт тебя в библиотеке:
+
+• 180+ тренировок на разные части тела до 40 минут: дыхание, лицо, шея, руки, плечи, живот, осанка, спина, ягодицы, ноги, таз, МТД, колени, стопы, отёки
+• 15+ мини-тренировок экстренной помощи от 5 минут: при боли во время ПМС, головной боли, после сидячей работы и в других ситуациях, когда телу нужна поддержка
+• 25+ зарядок для утра и вечера по 10–15 минут
+• 20+ тренировок на всё тело
+• 10+ силовых тренировок из умного фитнеса — для дома и зала
+• 55+ упражнений для точечной работы с разными частями тела
+• 27+ лекций: диастаз, холка, целлюлит и другие темы
+
+Везде стоит «+», потому что я продолжаю пополнять библиотеку новыми тренировками и материалами.
 
 💛 Что ты получишь:
-• -2-4 кг в месяц без диет (тк тело будет выравниваться)
-• Лёгкость в теле: без отёков, боли и усталости
-• Красивая осанка = уверенность в себе
-• Долгосрочный результат без стресса (через месяц снова набрала - такого не будет)
+
+• Минус 2–4 кг в месяц без диет — благодаря тому, что тело будет постепенно выравниваться
+• Лёгкость в теле без отёков, боли и постоянной усталости
+• Красивую осанку и больше уверенности в себе
+• Долгосрочный результат без стресса и жёстких ограничений
 
 👩🏼‍⚕️ Немного обо мне:
-В профессии с 2015 года. Первое образование фитнес-тренер, дальше я дипломировалась на кинезиолога, сейчас заканчиваю обучение по физиотерапии в США. Мои тренировки построены на медицине и анатомии - результат сравним с работой остеопата.
 
-Рада, что ты здесь 💛
-Ниже варианты тарифов, жду тебя в клубе"""
+Я в профессии с 2015 года. Моё первое образование — фитнес-тренер. Затем я получила образование в сфере кинезиологии и сейчас заканчиваю обучение по физиотерапии в США.
 
-MSG_TARIFFS = """\
-🌿 Выбери свой тариф!
+Мои тренировки основаны на понимании медицины и анатомии: я помогаю телу двигаться лучше, чувствовать себя сильнее и легче.
 
-На фото - 3 плана: на 1, 3 и 6 месяцев. Они отличаются не только сроком, но и набором возможностей - посмотри внимательно.
+Рада, что ты здесь 💛"""
 
-После оплаты тебе придёт ссылка, чтобы вступить в клуб 🎉
+MSG_OFFER = """🌿 Доступ к библиотеке приобретается один раз и остаётся с тобой навсегда.
 
-Выбирай то, что тебе подходит, и нажимай кнопку 👇"""
+После оплаты бот сразу пришлёт тебе персональную ссылку для вступления в клуб 🎉"""
 
-MSG_PAY_REDIRECT = """\
-Ты выбрала тариф {label}.
+MSG_PAY_REDIRECT = """Ты выбрала пожизненный доступ к библиотеке Antibabka.
 
 Нажми кнопку ниже для перехода к оплате 👇"""
 
-# Разные сообщения для каждого тарифа
-MSG_THANKS_1MONTH = """\
-Спасибо за оплату! Добро пожаловать в клуб Antibabka! 🎉
+MSG_THANKS = """Спасибо за оплату! 💛
 
-Вот твоя персональная ссылка - она работает только 1 раз и только для тебя:
+Добро пожаловать в библиотеку тренировок Antibabka.
 
-{invite_link}
+Теперь у тебя пожизненный доступ ко всем тренировкам, лекциям и новым материалам, которые будут появляться в библиотеке. Продлевать ничего не нужно — доступ остаётся с тобой навсегда.
 
-Нажми на ссылку и вступай - жду тебя внутри! 💛"""
-
-MSG_THANKS_3MONTHS = """\
-Спасибо за оплату! Добро пожаловать в клуб Antibabka! 🎉
-
-Вот твоя персональная ссылка - она работает только 1 раз и только для тебя:
+Ниже твоя персональная ссылка для вступления в клуб. Она работает один раз и только для тебя:
 
 {invite_link}
 
-Так как выбран тариф на 3 месяца, ты получаешь дополнительные бонусы, напиши мне в личку: @LizaGoal "Привет Лиза, я в клубе на 3 месяца, готова приступать к апгрейду!" 💛"""
+Нажми на неё и вступай — жду тебя внутри! 🌿"""
 
-MSG_THANKS_6MONTHS = """\
-Спасибо за оплату! Добро пожаловать в клуб Antibabka! 🎉
+# Это сообщение получают только участницы со СТАРОЙ срочной подпиской,
+# когда она закончится. Новые пожизненные участницы его никогда не получат.
+MSG_EXPIRED = """Привет! Твоя подписка на клуб Antibabka закончилась.
 
-Вот твоя персональная ссылка - она работает только 1 раз и только для тебя:
+Теперь клуб работает в новом формате — это библиотека тренировок и лекций с пожизненным доступом 💛
 
-{invite_link}
+Доступ приобретается один раз и остаётся с тобой навсегда: без ежемесячных продлений и ограничений по времени.
 
-Так как выбран тариф на 6 месяцев, ты получаешь ВСЕ бонусы, напиши мне в личку: @LizaGoal "Привет Лиза, я в клубе на 6 месяцев, готова к личному ведению!" 💛"""
+Чтобы вернуться в библиотеку, выбери пожизненный доступ ниже 👇"""
 
-THANKS_BY_PLAN = {
-    "1month":  MSG_THANKS_1MONTH,
-    "3months": MSG_THANKS_3MONTHS,
-    "6months": MSG_THANKS_6MONTHS,
-}
 
-MSG_EXPIRED = """\
-Привет! Твоя подписка на клуб Antibabka закончилась.
+def get_club_chat_id() -> int:
+    value = os.environ.get("CLUB_CHAT_ID", "0")
+    return int(value) if value else 0
 
-Надеюсь, ты уже почувствовала результат! Чтобы продолжить - выбери тариф и продли доступ 👇"""
 
-# ════════════════════════════════════════════════════════
-#  БАЗА ДАННЫХ
-# ════════════════════════════════════════════════════════
-def init_db():
+def init_db() -> None:
     with sqlite3.connect(DB_FILE) as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
-                user_id    INTEGER PRIMARY KEY,
-                username   TEXT,
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
                 first_name TEXT,
-                joined_at  TEXT DEFAULT (datetime('now'))
+                joined_at TEXT DEFAULT (datetime('now'))
             );
+            -- Старые подписки: нужны только чтобы корректно завершить их.
             CREATE TABLE IF NOT EXISTS subscriptions (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id    INTEGER NOT NULL,
-                plan       TEXT    NOT NULL,
-                end_date   TEXT    NOT NULL,
-                active     INTEGER DEFAULT 1
-            );
-            CREATE TABLE IF NOT EXISTS tariff_scheduled (
-                user_id    INTEGER PRIMARY KEY,
-                send_at    TEXT    NOT NULL,
-                sent       INTEGER DEFAULT 0
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                plan TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                active INTEGER DEFAULT 1
             );
             CREATE TABLE IF NOT EXISTS pending_payments (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id    INTEGER NOT NULL,
-                plan       TEXT    NOT NULL,
-                amount     REAL    NOT NULL,
-                created_at TEXT    NOT NULL,
-                used       INTEGER DEFAULT 0
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                plan TEXT NOT NULL,
+                amount REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                used INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS lifetime_access (
+                user_id INTEGER PRIMARY KEY,
+                granted_at TEXT NOT NULL,
+                payment_plan TEXT NOT NULL DEFAULT 'lifetime'
             );
         """)
     log.info("Database initialized")
 
 
-def upsert_user(user_id, username, first_name):
+def upsert_user(user_id: int, username: str | None, first_name: str | None) -> None:
     with sqlite3.connect(DB_FILE) as conn:
         conn.execute(
             """INSERT INTO users (user_id, username, first_name) VALUES (?,?,?)
@@ -194,406 +146,279 @@ def upsert_user(user_id, username, first_name):
         )
 
 
-def add_subscription(user_id, plan, days):
-    end = (datetime.utcnow() + timedelta(days=days)).isoformat()
+def add_pending_payment(user_id: int, plan: str, amount: float) -> None:
     with sqlite3.connect(DB_FILE) as conn:
-        conn.execute("UPDATE subscriptions SET active=0 WHERE user_id=?", (user_id,))
-        conn.execute("INSERT INTO subscriptions (user_id, plan, end_date) VALUES (?,?,?)", (user_id, plan, end))
-    return end
-
-
-def get_expired_subscriptions():
-    now = datetime.utcnow().isoformat()
-    with sqlite3.connect(DB_FILE) as conn:
-        return conn.execute(
-            "SELECT user_id, plan, end_date FROM subscriptions WHERE active=1 AND end_date <= ?", (now,)
-        ).fetchall()
-
-
-def deactivate_subscription(user_id):
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute("UPDATE subscriptions SET active=0 WHERE user_id=? AND active=1", (user_id,))
-
-
-def add_pending_payment(user_id, plan, amount):
-    with sqlite3.connect(DB_FILE) as conn:
+        # Один свежий ожидающий платёж на человека и тариф.
+        conn.execute(
+            "UPDATE pending_payments SET used=1 WHERE user_id=? AND plan=? AND used=0",
+            (user_id, plan),
+        )
         conn.execute(
             "INSERT INTO pending_payments (user_id, plan, amount, created_at) VALUES (?,?,?,?)",
             (user_id, plan, amount, datetime.utcnow().isoformat()),
         )
 
 
-def match_pending_payment(amount):
-    """Найти последний неиспользованный ожидающий платёж по сумме (в течение 24 часов)"""
+def match_pending_payment(amount: float):
+    """Ищет ожидание оплаты за последние 24 часа.
+
+    Это запасной способ, потому что короткие ссылки payform.ru могут не передать
+    Telegram ID обратно в уведомлении Продамуса.
+    """
     cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
     with sqlite3.connect(DB_FILE) as conn:
         row = conn.execute(
             """SELECT id, user_id, plan FROM pending_payments
                WHERE amount=? AND used=0 AND created_at > ?
-               ORDER BY created_at DESC LIMIT 1""",
+               ORDER BY created_at ASC LIMIT 1""",
             (amount, cutoff),
         ).fetchone()
-    if row:
-        return row[0], row[1], row[2]
-    return None, None, None
+    return row if row else (None, None, None)
 
 
-def mark_pending_used(pending_id):
+def mark_pending_used(pending_id: int) -> None:
     with sqlite3.connect(DB_FILE) as conn:
         conn.execute("UPDATE pending_payments SET used=1 WHERE id=?", (pending_id,))
 
 
-def schedule_tariff_message(user_id, send_at):
+def grant_lifetime_access(user_id: int) -> bool:
+    """Даёт доступ навсегда и отключает любую старую срочную подписку.
+
+    Возвращает True, если это первая пожизненная покупка пользователя.
+    """
     with sqlite3.connect(DB_FILE) as conn:
-        conn.execute(
-            """INSERT INTO tariff_scheduled (user_id, send_at) VALUES (?,?)
-               ON CONFLICT(user_id) DO UPDATE SET send_at=excluded.send_at, sent=0""",
-            (user_id, send_at.isoformat()),
+        exists = conn.execute(
+            "SELECT 1 FROM lifetime_access WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.execute("UPDATE subscriptions SET active=0 WHERE user_id=? AND active=1", (user_id,))
+        if not exists:
+            conn.execute(
+                "INSERT INTO lifetime_access (user_id, granted_at) VALUES (?,?)",
+                (user_id, datetime.utcnow().isoformat()),
+            )
+            return True
+    return False
+
+
+def get_expired_subscriptions():
+    """Только старые срочные подписки, которые ещё не завершены."""
+    now = datetime.utcnow().isoformat()
+    with sqlite3.connect(DB_FILE) as conn:
+        return conn.execute(
+            """SELECT s.user_id, s.plan, s.end_date
+               FROM subscriptions s
+               LEFT JOIN lifetime_access l ON l.user_id=s.user_id
+               WHERE s.active=1 AND s.end_date <= ? AND l.user_id IS NULL""",
+            (now,),
+        ).fetchall()
+
+
+def deactivate_subscription(user_id: int) -> None:
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE subscriptions SET active=0 WHERE user_id=? AND active=1", (user_id,))
+
+
+def tariff_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(PLANS[LIFETIME_PLAN]["label"], callback_data="plan_lifetime")]
+    ])
+
+
+def pay_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    # Параметры оставлены: если Продамус их передаст, бот сразу узнает покупателя.
+    url = f"{PLANS[LIFETIME_PLAN]['url']}?us_telegram_id={user_id}&us_plan={LIFETIME_PLAN}"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Перейти к оплате", url=url)]
+    ])
+
+
+async def is_current_member(bot: Bot, chat_id: int, user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+        return member.status in {"creator", "administrator", "member", "restricted"}
+    except (BadRequest, Forbidden):
+        return False
+
+
+async def make_invite_link(bot: Bot, user_id: int) -> str | None:
+    club_id = get_club_chat_id()
+    if not club_id:
+        return None
+    invite = await bot.create_chat_invite_link(
+        chat_id=club_id,
+        member_limit=1,
+        expire_date=datetime.now(timezone.utc) + timedelta(hours=48),
+        name=f"lifetime_{user_id}",
+    )
+    return invite.invite_link
+
+
+async def send_lifetime_access(bot: Bot, user_id: int) -> None:
+    # Сообщение после оплаты одинаковое для всех покупателей.
+    grant_lifetime_access(user_id)
+    invite_link = await make_invite_link(bot, user_id)
+    if invite_link:
+        await bot.send_message(chat_id=user_id, text=MSG_THANKS.format(invite_link=invite_link))
+    else:
+        await bot.send_message(
+            chat_id=user_id,
+            text="Спасибо за оплату! Напиши, пожалуйста, @LizaGoal — я помогу со вступлением в библиотеку.",
         )
 
 
-def get_pending_tariff_users():
-    now = datetime.utcnow().isoformat()
-    with sqlite3.connect(DB_FILE) as conn:
-        rows = conn.execute(
-            "SELECT user_id FROM tariff_scheduled WHERE sent=0 AND send_at <= ?", (now,)
-        ).fetchall()
-    return [r[0] for r in rows]
+async def send_expired_offer(bot: Bot, user_id: int) -> None:
+    await bot.send_message(chat_id=user_id, text=MSG_EXPIRED, reply_markup=tariff_keyboard())
 
 
-def mark_tariff_sent(user_id):
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute("UPDATE tariff_scheduled SET sent=1 WHERE user_id=?", (user_id,))
-
-# ════════════════════════════════════════════════════════
-#  КЛАВИАТУРЫ
-# ════════════════════════════════════════════════════════
-def tariff_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(PLANS["1month"]["label"],  callback_data="plan_1month")],
-        [InlineKeyboardButton(PLANS["3months"]["label"], callback_data="plan_3months")],
-        [InlineKeyboardButton(PLANS["6months"]["label"], callback_data="plan_6months")],
-    ])
-
-
-def pay_keyboard(plan, user_id):
-    url = f"{PLANS[plan]['url']}?us_telegram_id={user_id}&us_plan={plan}"
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Перейти к оплате", url=url)],
-        [InlineKeyboardButton("Выбрать другой тариф", callback_data="back_to_tariffs")],
-    ])
-
-# ════════════════════════════════════════════════════════
-#  ОБРАБОТЧИКИ
-# ════════════════════════════════════════════════════════
+# ── Команды и кнопки ─────────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     upsert_user(user.id, user.username, user.first_name)
     await update.message.reply_text(MSG_WELCOME)
-    try:
-        with open(PHOTO_FILE, "rb") as photo:
-            await ctx.bot.send_photo(
-                chat_id=user.id,
-                photo=photo,
-                caption=MSG_TARIFFS,
-                reply_markup=tariff_keyboard(),
-            )
-    except Exception as e:
-        log.error(f"[START] Failed to send tariffs to user_id={user.id}: {e}")
+    await update.message.reply_text(MSG_OFFER, reply_markup=tariff_keyboard())
     log.info(f"[START] user_id={user.id} @{user.username}")
 
 
-async def cmd_chatid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    chat = update.effective_chat
-    await update.message.reply_text(f"Chat ID: {chat.id}\nТип: {chat.type}\nНазвание: {chat.title or '—'}")
-
-
 async def cmd_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Ручное подтверждение оплаты: /confirm USER_ID PLAN"""
+    """Резервное ручное подтверждение: /confirm USER_ID"""
     if update.effective_user.id != ADMIN_ID:
         return
-    args = ctx.args
-    if not args or len(args) < 2:
-        await update.message.reply_text(
-            "Использование: /confirm USER_ID PLAN\n"
-            "Планы: 1month, 3months, 6months\n"
-            "Пример: /confirm 123456789 1month"
-        )
+    if not ctx.args:
+        await update.message.reply_text("Использование: /confirm USER_ID")
         return
     try:
-        user_id = int(args[0])
-        plan = args[1]
-        if plan not in PLANS:
-            await update.message.reply_text(f"Неверный план. Доступные: {', '.join(PLANS.keys())}")
-            return
-        days = PLANS[plan]["days"]
-        club_id = get_club_chat_id()
-        end_date = add_subscription(user_id, plan, days)
-        if club_id != 0:
-            invite = await ctx.bot.create_chat_invite_link(
-                chat_id=club_id,
-                member_limit=1,
-                expire_date=datetime.now(timezone.utc) + timedelta(hours=48),
-                name=f"manual_{user_id}_{plan}",
-            )
-            invite_link = invite.invite_link
-        else:
-            invite_link = "Свяжитесь с @LizaGoal"
-        msg_text = THANKS_BY_PLAN[plan].format(invite_link=invite_link)
-        await ctx.bot.send_message(chat_id=user_id, text=msg_text)
-        await update.message.reply_text(
-            f"Готово! Пользователь {user_id} получил тариф {plan} до {end_date[:10]}\n"
-            f"Инвайт: {invite_link}"
-        )
-        log.info(f"[MANUAL] user_id={user_id} plan={plan}")
-    except Exception as e:
-        await update.message.reply_text(f"Ошибка: {e}")
-        log.error(f"[MANUAL] Error: {e}")
+        user_id = int(ctx.args[0])
+        await send_lifetime_access(ctx.bot, user_id)
+        await update.message.reply_text(f"Готово: пожизненный доступ отправлен пользователю {user_id}.")
+        log.info(f"[MANUAL] lifetime user_id={user_id}")
+    except Exception as exc:
+        log.exception("[MANUAL] Error")
+        await update.message.reply_text(f"Ошибка: {exc}")
 
 
 async def cmd_expire(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Отправить сообщение об истечении подписки: /expire USER_ID"""
+    """Резервная команда для старой подписки: /expire USER_ID"""
     if update.effective_user.id != ADMIN_ID:
         return
-    args = ctx.args
-    if not args:
-        await update.message.reply_text("Использование: /expire USER_ID\nПример: /expire 123456789")
+    if not ctx.args:
+        await update.message.reply_text("Использование: /expire USER_ID")
         return
     try:
-        user_id = int(args[0])
-        with open(PHOTO_FILE, "rb") as photo:
-            await ctx.bot.send_photo(
-                chat_id=user_id,
-                photo=photo,
-                caption=MSG_EXPIRED,
-                reply_markup=tariff_keyboard(),
-            )
-        await update.message.reply_text(f"✅ Готово! Сообщение отправлено {user_id}")
-        log.info(f"[EXPIRE_MANUAL] user_id={user_id}")
-    except Exception as e:
-        await update.message.reply_text(f"Ошибка: {e}")
-        log.error(f"[EXPIRE_MANUAL] Error: {e}")
-
-
-async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Немедленно завершить подписку и выкинуть из клуба: /cancel USER_ID
-    Бот удалит человека и отправит напоминание об оплате в течение часа."""
-    if update.effective_user.id != ADMIN_ID:
-        return
-    args = ctx.args
-    if not args:
-        await update.message.reply_text("Использование: /cancel USER_ID\nПример: /cancel 123456789")
-        return
-    try:
-        user_id = int(args[0])
-        past = (datetime.utcnow() - timedelta(hours=1)).isoformat()
-        with sqlite3.connect(DB_FILE) as conn:
-            conn.execute(
-                "UPDATE subscriptions SET end_date=? WHERE user_id=? AND active=1",
-                (past, user_id),
-            )
-        await update.message.reply_text(
-            f"✅ Подписка {user_id} помечена как истёкшая.\n"
-            f"Бот удалит из клуба и отправит напоминание в течение часа."
-        )
-        log.info(f"[CANCEL] user_id={user_id} subscription set to expired")
-    except Exception as e:
-        await update.message.reply_text(f"Ошибка: {e}")
-        log.error(f"[CANCEL] Error: {e}")
-
-
-async def cmd_dbcheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Показать все подписки в базе: /dbcheck"""
-    if update.effective_user.id != ADMIN_ID:
-        return
-    with sqlite3.connect(DB_FILE) as conn:
-        subs = conn.execute(
-            "SELECT user_id, plan, end_date, active FROM subscriptions ORDER BY end_date DESC LIMIT 30"
-        ).fetchall()
-    if not subs:
-        await update.message.reply_text("📭 База пуста — нет ни одной подписки")
-        return
-    now = datetime.utcnow().isoformat()
-    lines = ["📋 Подписки в базе:\n"]
-    for user_id, plan, end_date, active in subs:
-        if not active:
-            icon = "⚫"
-        elif end_date <= now:
-            icon = "🔴 ИСТЕКЛА"
-        else:
-            icon = "🟢"
-        lines.append(f"{icon} {user_id} | {plan} | до {end_date[:10]}")
-    await update.message.reply_text("\n".join(lines))
+        user_id = int(ctx.args[0])
+        await send_expired_offer(ctx.bot, user_id)
+        await update.message.reply_text(f"Готово: предложение пожизненного доступа отправлено {user_id}.")
+    except Exception as exc:
+        log.exception("[EXPIRE_MANUAL] Error")
+        await update.message.reply_text(f"Ошибка: {exc}")
 
 
 async def cb_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    plan = query.data.replace("plan_", "")
+    # Старые кнопки из давних сообщений тоже ведут на новый пожизненный доступ.
     user_id = query.from_user.id
-    label = PLANS[plan]["label"]
-    add_pending_payment(user_id, plan, PLANS[plan]["amount"])
-    await query.edit_message_caption(
-        caption=MSG_PAY_REDIRECT.format(label=label),
-        reply_markup=pay_keyboard(plan, user_id),
-    )
+    add_pending_payment(user_id, LIFETIME_PLAN, PLANS[LIFETIME_PLAN]["amount"])
+    try:
+        await query.edit_message_text(MSG_PAY_REDIRECT, reply_markup=pay_keyboard(user_id))
+    except BadRequest:
+        # Старые сообщения были с фото и подписью; в них нельзя заменить текст.
+        await query.message.reply_text(MSG_PAY_REDIRECT, reply_markup=pay_keyboard(user_id))
+    log.info(f"[PAY_INTENT] user_id={user_id} plan=lifetime")
 
 
-async def cb_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_caption(
-        caption=MSG_TARIFFS,
-        reply_markup=tariff_keyboard(),
-    )
-
-# ════════════════════════════════════════════════════════
-#  ФОНОВЫЕ ЗАДАЧИ
-# ════════════════════════════════════════════════════════
-async def job_send_tariffs(ctx: ContextTypes.DEFAULT_TYPE):
-    pending = get_pending_tariff_users()
-    for user_id in pending:
-        try:
-            with open(PHOTO_FILE, "rb") as photo:
-                await ctx.bot.send_photo(
-                    chat_id=user_id,
-                    photo=photo,
-                    caption=MSG_TARIFFS,
-                    reply_markup=tariff_keyboard(),
-                )
-            mark_tariff_sent(user_id)
-            log.info(f"[TARIFF] Sent to user_id={user_id}")
-        except Exception as e:
-            log.error(f"[TARIFF] Failed for user_id={user_id}: {e}")
-
-
+# ── Автоматическое завершение только СТАРЫХ подписок ──────
 async def job_check_subscriptions(ctx: ContextTypes.DEFAULT_TYPE):
     expired = get_expired_subscriptions()
     club_id = get_club_chat_id()
     for user_id, plan, end_date in expired:
         log.info(f"[EXPIRE] user_id={user_id} plan={plan} ended={end_date}")
-        # Шаг 1: Удалить из клуба (ошибка здесь НЕ останавливает остальное)
-        if club_id != 0:
-            try:
+        try:
+            if club_id:
                 await ctx.bot.ban_chat_member(chat_id=club_id, user_id=user_id)
                 await ctx.bot.unban_chat_member(chat_id=club_id, user_id=user_id)
                 log.info(f"[EXPIRE] Removed from club: user_id={user_id}")
-            except Exception as e:
-                log.error(f"[EXPIRE] Failed to remove from club user_id={user_id}: {e}")
-        # Шаг 2: Отправить уведомление (всегда, даже если бан не сработал)
+        except Exception:
+            log.exception(f"[EXPIRE] Could not remove user_id={user_id}")
+            # Не деактивируем: бот повторит попытку позже.
+            continue
         try:
-            with open(PHOTO_FILE, "rb") as photo:
-                await ctx.bot.send_photo(
-                    chat_id=user_id,
-                    photo=photo,
-                    caption=MSG_EXPIRED,
-                    reply_markup=tariff_keyboard(),
-                )
-            log.info(f"[EXPIRE] Notification sent: user_id={user_id}")
-        except Exception as e:
-            log.error(f"[EXPIRE] Failed to send notification user_id={user_id}: {e}")
-        # Шаг 3: Деактивировать подписку (всегда)
+            await send_expired_offer(ctx.bot, user_id)
+            log.info(f"[EXPIRE] Lifetime offer sent: user_id={user_id}")
+        except Exception:
+            # Удаление уже прошло. Подписку всё равно закрываем, чтобы не слать спам.
+            log.exception(f"[EXPIRE] Could not message user_id={user_id}")
         deactivate_subscription(user_id)
         log.info(f"[EXPIRE] Subscription deactivated: user_id={user_id}")
 
-# ════════════════════════════════════════════════════════
-#  ВЕБХУК ПРОДАМУСА
-# ════════════════════════════════════════════════════════
+
+# ── Продамус ──────────────────────────────────────────────
 _bot: Bot | None = None
+
+
+def payment_amount(data: dict) -> float:
+    for key in ("sum", "amount", "payment_amount"):
+        value = data.get(key)
+        if value not in (None, ""):
+            return float(str(value).replace(",", "."))
+    return 0.0
 
 
 async def prodamus_webhook(request: web.Request) -> web.Response:
     try:
-        content_type = request.content_type or ""
-        if "json" in content_type:
-            data = await request.json()
-        else:
-            data = dict(await request.post())
+        data = await request.json() if "json" in (request.content_type or "") else dict(await request.post())
         log.info(f"[WEBHOOK] {json.dumps(data, ensure_ascii=False)}")
         status = str(data.get("status") or data.get("payment_status", "")).lower()
         if status not in ("success", "paid", "1", "true", "успешная оплата"):
             return web.Response(text="OK")
+
         raw_uid = data.get("us_telegram_id") or data.get("telegram_id") or ""
-        plan    = data.get("us_plan") or data.get("plan") or ""
-        if not raw_uid or plan not in PLANS:
-            # Продамус не передал Telegram ID — ищем по сумме платежа
-            try:
-                amount = float(data.get("sum", 0))
-                pending_id, raw_uid, plan = match_pending_payment(amount)
-                if raw_uid and plan in PLANS:
-                    log.info(f"[WEBHOOK] Matched by amount {amount}: user={raw_uid} plan={plan}")
-                    mark_pending_used(pending_id)
-                else:
-                    log.warning(f"[WEBHOOK] No match found for amount={amount}, no telegram_id in data")
-                    return web.Response(text="OK")
-            except Exception as e:
-                log.error(f"[WEBHOOK] Match error: {e}")
+        plan = data.get("us_plan") or data.get("plan") or ""
+        if not raw_uid or plan != LIFETIME_PLAN:
+            amount = payment_amount(data)
+            pending_id, raw_uid, plan = match_pending_payment(amount)
+            if not raw_uid or plan != LIFETIME_PLAN:
+                log.warning(f"[WEBHOOK] No pending match: amount={amount}")
                 return web.Response(text="OK")
+            mark_pending_used(pending_id)
+            log.info(f"[WEBHOOK] Matched by amount {amount}: user={raw_uid}")
+
+        if _bot is None:
+            log.error("[WEBHOOK] Telegram bot is not ready")
+            return web.Response(text="OK")
         user_id = int(raw_uid)
-        club_id = get_club_chat_id()
-        end_date = add_subscription(user_id, plan, PLANS[plan]["days"])
-        if club_id != 0 and _bot is not None:
-            invite = await _bot.create_chat_invite_link(
-                chat_id=club_id,
-                member_limit=1,
-                expire_date=datetime.now(timezone.utc) + timedelta(hours=48),
-                name=f"user_{user_id}_{plan}",
-            )
-            invite_link = invite.invite_link
-        else:
-            invite_link = "Свяжитесь с @LizaGoal"
-        if _bot is not None:
-            msg_text = THANKS_BY_PLAN[plan].format(invite_link=invite_link)
-            await _bot.send_message(chat_id=user_id, text=msg_text)
-        log.info(f"[WEBHOOK] Done: user={user_id} plan={plan} until={end_date}")
-    except Exception as e:
-        log.error(f"[WEBHOOK] Error: {e}", exc_info=True)
+        await send_lifetime_access(_bot, user_id)
+        log.info(f"[WEBHOOK] Lifetime access granted: user_id={user_id}")
+    except Exception:
+        log.exception("[WEBHOOK] Error")
     return web.Response(text="OK")
 
-# ════════════════════════════════════════════════════════
-#  ЗАПУСК
-# ════════════════════════════════════════════════════════
+
 async def main():
     global _bot
     init_db()
-    log.info(f"CLUB_CHAT_ID = {get_club_chat_id()}")
-
     application = Application.builder().token(BOT_TOKEN).build()
     _bot = application.bot
 
-    application.add_handler(CommandHandler("start",   cmd_start))
-    application.add_handler(CommandHandler("chatid",  cmd_chatid))
+    application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("confirm", cmd_confirm))
-    application.add_handler(CommandHandler("expire",  cmd_expire))
-    application.add_handler(CommandHandler("cancel",  cmd_cancel))
-    application.add_handler(CommandHandler("dbcheck", cmd_dbcheck))
+    application.add_handler(CommandHandler("expire", cmd_expire))
     application.add_handler(CallbackQueryHandler(cb_plan, pattern=r"^plan_"))
-    application.add_handler(CallbackQueryHandler(cb_back, pattern=r"^back_to_tariffs$"))
-
-    jq = application.job_queue
-    jq.run_repeating(job_send_tariffs,        interval=60,   first=5)
-    jq.run_repeating(job_check_subscriptions, interval=3600, first=60)
 
     web_app = web.Application()
     web_app.router.add_post("/prodamus", prodamus_webhook)
     runner = web.AppRunner(web_app)
     await runner.setup()
-    site = web.TCPSite(runner, WEBHOOK_HOST, WEBHOOK_PORT)
-    await site.start()
-    log.info(f"Webhook on port {WEBHOOK_PORT}")
+    await web.TCPSite(runner, WEBHOOK_HOST, WEBHOOK_PORT).start()
 
-    log.info("Bot starting...")
+    # Проверка старых подписок каждые 5 минут.
+    application.job_queue.run_repeating(job_check_subscriptions, interval=300, first=30)
+
     async with application:
         await application.start()
         await application.updater.start_polling(drop_pending_updates=True)
-        log.info("Bot is running!")
+        log.info("Bot is running")
         await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        log.info("Bot stopped")
+    asyncio.run(main())
