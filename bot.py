@@ -86,6 +86,7 @@ MSG_PAY_REDIRECT = """Ты выбрала пожизненный доступ к
 
 Стоимость — 6 499 ₽ одним платежом, без подписки и продлений.
 Перед оплатой: <a href="https://github.com/lizygoal-prog/antibabka-bot/blob/codex/robokassa-documents/legal/offer.md">оферта и возврат</a>. Оплата означает принятие оферты.
+<a href="https://github.com/lizygoal-prog/antibabka-bot/blob/codex/robokassa-documents/legal/privacy.md">Политика обработки данных</a>.
 По вопросам доступа и возврата: lizygoal@gmail.com.
 
 Нажми кнопку ниже для перехода к оплате 👇"""
@@ -290,6 +291,10 @@ async def send_expired_offer(bot: Bot, user_id: int) -> None:
 # ── Команды и кнопки ─────────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    await update.message.reply_text(
+        'Информация об обработке данных: <a href="https://github.com/lizygoal-prog/antibabka-bot/blob/codex/robokassa-documents/legal/privacy.md">политика</a>. По вопросам данных: lizygoal@gmail.com.',
+        parse_mode=ParseMode.HTML, disable_web_page_preview=True,
+    )
     upsert_user(user.id, user.username, user.first_name)
     await update.message.reply_text(MSG_WELCOME, parse_mode=ParseMode.HTML)
     await update.message.reply_text(MSG_OFFER, reply_markup=tariff_keyboard())
