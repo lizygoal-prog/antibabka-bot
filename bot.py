@@ -85,7 +85,7 @@ MSG_OFFER = """🌿 Доступ к библиотеке приобретает�
 MSG_PAY_REDIRECT = """Ты выбрала пожизненный доступ к библиотеке Antibabka.
 
 Стоимость — 6 499 ₽ одним платежом, без подписки и продлений.
-Перед оплатой прочитайте оферту и условия возврата по кнопке ниже. Оплата означает принятие оферты.
+Перед оплатой: <a href="https://github.com/lizygoal-prog/antibabka-bot/blob/codex/robokassa-documents/legal/offer.md">оферта и возврат</a>. Оплата означает принятие оферты.
 По вопросам доступа и возврата: lizygoal@gmail.com.
 
 Нажми кнопку ниже для перехода к оплате 👇"""
@@ -245,7 +245,6 @@ def pay_keyboard(user_id: int) -> InlineKeyboardMarkup:
     # Параметры оставлены: если Продамус их передаст, бот сразу узнает покупателя.
     url = f"{PLANS[LIFETIME_PLAN]['url']}?us_telegram_id={user_id}&us_plan={LIFETIME_PLAN}"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Оферта и возврат", url="https://github.com/lizygoal-prog/antibabka-bot/blob/codex/robokassa-documents/legal/offer.md")],
         [InlineKeyboardButton("Перейти к оплате", url=url)]
     ])
 
@@ -337,10 +336,10 @@ async def cb_plan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     add_pending_payment(user_id, LIFETIME_PLAN, PLANS[LIFETIME_PLAN]["amount"])
     try:
-        await query.edit_message_text(MSG_PAY_REDIRECT, reply_markup=pay_keyboard(user_id))
+        await query.edit_message_text(MSG_PAY_REDIRECT, reply_markup=pay_keyboard(user_id), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except BadRequest:
         # Старые сообщения были с фото и подписью; в них нельзя заменить текст.
-        await query.message.reply_text(MSG_PAY_REDIRECT, reply_markup=pay_keyboard(user_id))
+        await query.message.reply_text(MSG_PAY_REDIRECT, reply_markup=pay_keyboard(user_id), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     log.info(f"[PAY_INTENT] user_id={user_id} plan=lifetime")
 
 
