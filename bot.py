@@ -84,6 +84,10 @@ MSG_OFFER = """🌿 Доступ к библиотеке приобретает�
 
 MSG_PAY_REDIRECT = """Ты выбрала пожизненный доступ к библиотеке Antibabka.
 
+Стоимость — 6 499 ₽ одним платежом, без подписки и продлений.
+Перед оплатой прочитайте оферту и условия возврата по кнопке ниже. Оплата означает принятие оферты.
+По вопросам доступа и возврата: lizygoal@gmail.com.
+
 Нажми кнопку ниже для перехода к оплате 👇"""
 
 MSG_THANKS = """Спасибо за оплату! 💚
@@ -241,6 +245,7 @@ def pay_keyboard(user_id: int) -> InlineKeyboardMarkup:
     # Параметры оставлены: если Продамус их передаст, бот сразу узнает покупателя.
     url = f"{PLANS[LIFETIME_PLAN]['url']}?us_telegram_id={user_id}&us_plan={LIFETIME_PLAN}"
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Оферта и возврат", url="https://github.com/lizygoal-prog/antibabka-bot/blob/codex/robokassa-documents/legal/offer.md")],
         [InlineKeyboardButton("Перейти к оплате", url=url)]
     ])
 
