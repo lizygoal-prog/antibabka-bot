@@ -9,6 +9,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from aiohttp import web
+from robokassa_payments import Config, Payments
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, Forbidden
@@ -27,6 +28,23 @@ ADMIN_ID = 1574658804
 DB_FILE = "/data/antibabka.db"
 WEBHOOK_HOST = "0.0.0.0"
 WEBHOOK_PORT = int(os.environ.get("PORT", "8080"))
+
+robo_payments = Payments(DB_FILE)
+robo_delivery_lock = asyncio.Lock()
+
+
+def robo_config(test=True):
+    prefix = "ROBOKASSA_TEST_" if test else "ROBOKASSA_LIVE_"
+    if not test and os.environ.get("ROBOKASSA_LIVE_ENABLED") != "1":
+        raise ValueError("Live Robokassa payments are disabled")
+    return Config(
+        login=os.environ.get("ROBOKASSA_LOGIN", ""),
+        password1=os.environ.get(prefix + "PASSWORD1", ""),
+        password2=os.environ.get(prefix + "PASSWORD2", ""),
+        test=test,
+        algorithm=os.environ.get("ROBOKASSA_HASH", "sha256").lower(),
+    )
+
 
 LIFETIME_PLAN = "lifetime"
 PLANS = {
@@ -243,7 +261,10 @@ def tariff_keyboard() -> InlineKeyboardMarkup:
 
 
 def pay_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    # Параметры оставлены: если Продамус их передаст, бот сразу узнает покупателя.
+    if os.environ.get("PAYMENT_PROVIDER", "prodamus") == "robokassa":
+        _, url = robo_payments.checkout(user_id, "6499.00", robo_config(test=False))
+        return InlineKeyboardMarkup([[InlineKeyboardButton("Перейти к оплате", url=url)]])
+    # Prodamus remains the default until live checks have passed.
     url = f"{PLANS[LIFETIME_PLAN]['url']}?us_telegram_id={user_id}&us_plan={LIFETIME_PLAN}"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("Перейти к оплате", url=url)]
@@ -415,25 +436,100 @@ async def prodamus_webhook(request: web.Request) -> web.Response:
     return web.Response(text="OK")
 
 
+async def cmd_testpayment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    try:
+        inv_id, url = robo_payments.checkout(ADMIN_ID, "6499.00", robo_config(test=True))
+    except ValueError:
+        await update.message.reply_text("Тестовые параметры Robokassa ещё не настроены.")
+        return
+    await update.message.reply_text(
+        f"Тест Robokassa, заказ {inv_id}. Деньги не списываются, доступ в клуб не выдаётся.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Тестовая оплата", url=url)]]),
+    )
+
+
+async def robo_result(request: web.Request, test: bool) -> web.Response:
+    try:
+        config = robo_config(test=test)
+    except ValueError:
+        return web.Response(status=503, text="Payments not configured")
+    if request.content_type != "application/x-www-form-urlencoded":
+        return web.Response(status=415, text="Form required")
+    data = await request.post()
+    if any(len(data.getall(key)) != 1 for key in data):
+        return web.Response(status=400, text="Duplicate parameters")
+    try:
+        answer = robo_payments.accept(dict(data), config)
+    except (ValueError, TypeError):
+        return web.Response(status=400, text="Invalid notification")
+    except sqlite3.Error:
+        log.error("Robokassa payment persistence failed")
+        return web.Response(status=503, text="Retry later")
+    return web.Response(text=answer)
+
+
+async def robo_test_result(request: web.Request) -> web.Response:
+    return await robo_result(request, test=True)
+
+
+async def robo_live_result(request: web.Request) -> web.Response:
+    return await robo_result(request, test=False)
+
+
+async def robo_return(request: web.Request) -> web.Response:
+    # Browser redirects are informational; only signed ResultURL grants access.
+    return web.Response(text="Вернитесь в Telegram-бот. Доступ выдаётся после подтверждения платежа. Если нужна помощь: lizygoal@gmail.com.")
+
+
+async def job_robo_deliver(ctx: ContextTypes.DEFAULT_TYPE):
+    # Run one Railway replica. Paid entitlements and retries persist in SQLite.
+    async with robo_delivery_lock:
+        for order in robo_payments.pending_deliveries():
+            try:
+                link = order["invite_link"]
+                if not link:
+                    link = await make_invite_link(ctx.bot, order["user_id"])
+                    if not link:
+                        raise RuntimeError("Club is not configured")
+                    robo_payments.remember_invite(order["inv_id"], link)
+                await ctx.bot.send_message(
+                    chat_id=order["user_id"], text=MSG_THANKS.format(invite_link=link),
+                    parse_mode=ParseMode.HTML,
+                )
+                robo_payments.delivery_done(order["inv_id"])
+            except Exception:
+                robo_payments.delivery_failed(order["inv_id"])
+                log.warning("Robokassa delivery pending; invoice=%s", order["inv_id"])
+
+
 async def main():
     global _bot
     init_db()
+    robo_payments.init()
     application = Application.builder().token(BOT_TOKEN).build()
     _bot = application.bot
 
     application.add_handler(CommandHandler("start", cmd_start))
+    application.add_handler(CommandHandler("testpayment", cmd_testpayment))
     application.add_handler(CommandHandler("confirm", cmd_confirm))
     application.add_handler(CommandHandler("expire", cmd_expire))
     application.add_handler(CallbackQueryHandler(cb_plan, pattern=r"^plan_"))
 
     web_app = web.Application()
     web_app.router.add_post("/prodamus", prodamus_webhook)
+    web_app.router.add_post("/robokassa/test/result", robo_test_result)
+    web_app.router.add_post("/robokassa/result", robo_live_result)
+    web_app.router.add_get("/robokassa/success", robo_return)
+    web_app.router.add_get("/robokassa/fail", robo_return)
     runner = web.AppRunner(web_app)
     await runner.setup()
     await web.TCPSite(runner, WEBHOOK_HOST, WEBHOOK_PORT).start()
 
     # Проверка старых подписок каждые 5 минут.
     application.job_queue.run_repeating(job_check_subscriptions, interval=300, first=30)
+    application.job_queue.run_repeating(job_robo_deliver, interval=30, first=10)
 
     async with application:
         await application.start()
