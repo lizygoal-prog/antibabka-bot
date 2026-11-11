@@ -533,7 +533,7 @@ async def main():
 
     async with application:
         await application.start()
-        await application.updater.start_polling(drop_pending_updates=True)
+        await application.updater.start_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
         log.info("Bot is running")
         await asyncio.Event().wait()
 
