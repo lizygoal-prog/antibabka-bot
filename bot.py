@@ -102,8 +102,12 @@ MSG_OFFER = """🌿 Доступ к библиотеке приобретает�
 
 MSG_PAY_REDIRECT = """Ты выбрала пожизненный доступ к библиотеке Antibabka.
 
-Стоимость — 6 499 ₽ одним платежом, без подписки и продлений.
-Перед оплатой: <a href="https://github.com/lizygoal-prog/antibabka-bot/blob/codex/robokassa-documents/legal/offer.md">оферта и возврат</a>. Оплата означает принятие оферты.
+Стоимость — 6 499 ₽ одним платежом, без подписки и продлений!
+
+------
+Перед оплатой: <a href="https://github.com/lizygoal-prog/antibabka-bot/blob/codex/robokassa-documents/legal/offer.md">оферта и возврат</a>.
+Оплата означает принятие оферты.
+
 <a href="https://github.com/lizygoal-prog/antibabka-bot/blob/codex/robokassa-documents/legal/privacy.md">Политика обработки данных</a>.
 По вопросам доступа и возврата: lizygoal@gmail.com.
 
