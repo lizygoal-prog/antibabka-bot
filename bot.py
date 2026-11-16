@@ -468,32 +468,42 @@ async def cmd_robocheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def robo_result(request: web.Request, test: bool) -> web.Response:
-    try:
-        config = robo_config(test=test)
-    except ValueError:
-        return web.Response(status=503, text="Payments not configured")
+async def robo_result(request: web.Request, modes: tuple[bool, ...]) -> web.Response:
     if request.content_type != "application/x-www-form-urlencoded":
         return web.Response(status=415, text="Form required")
     data = await request.post()
     if any(len(data.getall(key)) != 1 for key in data):
         return web.Response(status=400, text="Duplicate parameters")
-    try:
-        answer = robo_payments.accept(dict(data), config)
-    except (ValueError, TypeError):
-        return web.Response(status=400, text="Invalid notification")
-    except sqlite3.Error:
-        log.error("Robokassa payment persistence failed")
-        return web.Response(status=503, text="Retry later")
-    return web.Response(text=answer)
+    configured = False
+    for test in modes:
+        try:
+            config = robo_config(test=test)
+        except ValueError:
+            continue
+        configured = True
+        try:
+            answer = robo_payments.accept(dict(data), config)
+        except (ValueError, TypeError):
+            continue
+        except sqlite3.Error:
+            log.error("Robokassa payment persistence failed")
+            return web.Response(status=503, text="Retry later")
+        if test:
+            log.info("Robokassa test payment accepted")
+        return web.Response(text=answer)
+    if not configured:
+        return web.Response(status=503, text="Payments not configured")
+    return web.Response(status=400, text="Invalid notification")
 
 
 async def robo_test_result(request: web.Request) -> web.Response:
-    return await robo_result(request, test=True)
+    return await robo_result(request, modes=(True,))
 
 
 async def robo_live_result(request: web.Request) -> web.Response:
-    return await robo_result(request, test=False)
+    # Robokassa sends both modes to the same Result URL. Each order is
+    # accepted only with matching credentials and its stored payment mode.
+    return await robo_result(request, modes=(False, True))
 
 
 async def robo_return(request: web.Request) -> web.Response:
