@@ -455,10 +455,11 @@ async def cmd_testpayment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_robocheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID or update.effective_chat.type != "private":
+    check_user_id = int(os.environ.get("ROBOKASSA_CHECK_USER_ID", ADMIN_ID))
+    if update.effective_user.id != check_user_id or update.effective_chat.type != "private":
         return
     try:
-        _, url = robo_payments.checkout(ADMIN_ID, "10.00", robo_config(test=False))
+        _, url = robo_payments.checkout(check_user_id, "10.00", robo_config(test=False))
     except ValueError:
         await update.message.reply_text("Рабочие параметры Robokassa ещё не настроены.")
         return
