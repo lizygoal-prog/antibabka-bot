@@ -3,9 +3,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import hashlib
 import hmac
+import json
 import secrets
 import sqlite3
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 
 def amount_value(value):
@@ -81,11 +82,21 @@ class Payments:
                     continue
             else:
                 raise RuntimeError("Cannot allocate invoice")
+        description = "Доступ в клуб Антибабка"
+        receipt = quote(json.dumps({"items": [{
+            "name": description,
+            "quantity": 1,
+            "sum": float(value),
+            "payment_method": "full_payment",
+            "payment_object": "service",
+            "tax": "none",
+        }]}, ensure_ascii=False, separators=(",", ":")), safe="")
         params = {
             "MerchantLogin": config.login, "OutSum": value, "InvId": str(inv_id),
-            "Description": "Доступ в клуб Антибабка", "Culture": "ru", "Encoding": "utf-8",
+            "Description": description, "Culture": "ru", "Encoding": "utf-8",
+            "Receipt": receipt,
             "IsTest": "1" if config.test else "0",
-            "SignatureValue": signature(config, [config.login, value, str(inv_id), config.password1]),
+            "SignatureValue": signature(config, [config.login, value, str(inv_id), receipt, config.password1]),
         }
         return inv_id, "https://auth.robokassa.ru/Merchant/Index.aspx?" + urlencode(params)
 

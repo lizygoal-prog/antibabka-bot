@@ -454,6 +454,20 @@ async def cmd_testpayment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cmd_robocheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID or update.effective_chat.type != "private":
+        return
+    try:
+        _, url = robo_payments.checkout(ADMIN_ID, "6499.00", robo_config(test=False))
+    except ValueError:
+        await update.message.reply_text("Рабочие параметры Robokassa ещё не настроены.")
+        return
+    await update.message.reply_text(
+        "Контрольная оплата через Robokassa. При подтверждении спишется 6 499 ₽.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Открыть страницу оплаты", url=url)]]),
+    )
+
+
 async def robo_result(request: web.Request, test: bool) -> web.Response:
     try:
         config = robo_config(test=test)
@@ -517,6 +531,7 @@ async def main():
 
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("testpayment", cmd_testpayment))
+    application.add_handler(CommandHandler("robocheck", cmd_robocheck))
     application.add_handler(CommandHandler("confirm", cmd_confirm))
     application.add_handler(CommandHandler("expire", cmd_expire))
     application.add_handler(CallbackQueryHandler(cb_plan, pattern=r"^plan_"))
@@ -537,7 +552,10 @@ async def main():
 
     async with application:
         await application.start()
-        await application.updater.start_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
+        await application.updater.start_polling(
+            allowed_updates=["message", "callback_query"],
+            drop_pending_updates=True,
+        )
         log.info("Bot is running")
         await asyncio.Event().wait()
 

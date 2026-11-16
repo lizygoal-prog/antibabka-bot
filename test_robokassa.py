@@ -1,10 +1,11 @@
 import concurrent.futures
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from robokassa_payments import Config, Payments
 
@@ -42,7 +43,11 @@ class RobokassaTests(unittest.TestCase):
         self.assertEqual(query["IsTest"],["1"])
         self.assertNotIn("Shp_user", query)
         self.assertEqual(query["InvId"], [str(inv_id)])
-        expected = hashlib.sha256(f"antibabka:6499.00:{inv_id}:test-secret-one".encode()).hexdigest()
+        receipt = query["Receipt"][0]
+        item = json.loads(unquote(receipt))["items"][0]
+        self.assertEqual(item["name"], "Доступ в клуб Антибабка")
+        self.assertEqual(item["sum"], 6499)
+        expected = hashlib.sha256(f"antibabka:6499.00:{inv_id}:{receipt}:test-secret-one".encode()).hexdigest()
         self.assertEqual(query["SignatureValue"],[expected])
         self.assertNotIn("test-secret",url)
 
