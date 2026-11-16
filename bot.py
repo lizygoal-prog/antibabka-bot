@@ -459,12 +459,12 @@ async def cmd_robocheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != check_user_id or update.effective_chat.type != "private":
         return
     try:
-        _, url = robo_payments.checkout(check_user_id, "150.00", robo_config(test=False))
+        _, url = robo_payments.checkout(check_user_id, "10.00", robo_config(test=False))
     except ValueError:
         await update.message.reply_text("Рабочие параметры Robokassa ещё не настроены.")
         return
     await update.message.reply_text(
-        "Контрольная оплата через Robokassa. Сумма заказа — 150 ₽.",
+        "Контрольная оплата через Robokassa. Сумма заказа — 10 ₽.",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Открыть страницу оплаты", url=url)]]),
     )
 
